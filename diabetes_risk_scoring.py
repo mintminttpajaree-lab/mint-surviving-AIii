@@ -205,175 +205,158 @@ class DiabetesRiskService:
 
 
 # =============================================================================
-# TIER 3: PRESENTATION LAYER (THE VIEW)
-# =============================================================================
-class ConsoleView:
-    """Handles CLI formatting, user interactions, and diagnostic output display."""
-
-    @staticmethod
-    def show_main_menu() -> str:
-        print("\n" + "=" * 50)
-        print("    DIABETES RISK ASSESSMENT SYSTEM")
-        print("=" * 50)
-        print("1. Assess Patient Risk")
-        print("2. Exit")
-        return input("Select an option (1-2): ").strip()
-
-    @staticmethod
-    def display_patient_list(patient_ids: List[int]) -> None:
-        ids_str = ", ".join(map(str, patient_ids))
-        print(f"\nAvailable Patient IDs: [{ids_str}]")
-
-    @staticmethod
-    def prompt_patient_id() -> str:
-        return input("Enter Patient ID to assess: ").strip()
-
-    @staticmethod
-    def display_patient_profile(patient: PatientProfile) -> None:
-        print(f"\n--- Patient Profile [ID: {patient.patient_id}] ---")
-        print(f"  • Fasting Glucose : {patient.glucose:.1f} mg/dL")
-        print(f"  • BMI             : {patient.bmi:.1f} kg/m²")
-        print(f"  • Age             : {patient.age} years")
-        print(f"  • Blood Pressure  : {patient.blood_pressure:.1f} mmHg")
-
-    @staticmethod
-    def prompt_modify_metrics() -> bool:
-        choice = (
-            input(
-                "\nWould you like to modify any clinical metrics before assessment? (y/N): "
-            )
-            .strip()
-            .lower()
-        )
-        return choice in ["y", "yes"]
-
-    @staticmethod
-    def prompt_metric_update(
-        field_name: str, current_value: float, is_int: bool = False
-    ) -> float:
-        val_str = input(
-            f"  Enter new {field_name} (Press Enter to keep [{current_value}]): "
-        ).strip()
-        if not val_str:
-            return current_value
-        try:
-            val = float(val_str)
-            if val < 0:
-                print("  [!] Value cannot be negative. Retaining current value.")
-                return current_value
-            return int(val) if is_int else val
-        except ValueError:
-            print("  [!] Invalid numeric input. Retaining current value.")
-            return current_value
-
-    @staticmethod
-    def display_diagnostic_report(patient_id: int, score: int, category: str) -> None:
-        print("\n" + "=" * 44)
-        print("*" * 44)
-        print("        OFFICIAL MEDICAL RECEIPT         ")
-        print("        DIAGNOSTIC RISK REPORT           ")
-        print("*" * 44)
-        print("-" * 44)
-        print(f"  PATIENT ID       : {patient_id}")
-        print(f"  CUMULATIVE SCORE : {score} pts")
-        print(f"  RISK CATEGORY    : {category.upper()}")
-        print("-" * 44)
-        print("*" * 44)
-        print("  *** WARNING: CONFIDENTIAL MEDICAL DATA *** ")
-        print("=" * 44)
-
-    @staticmethod
-    def display_error(msg: str) -> None:
-        print(f"\n[ERROR] {msg}")
-
-    @staticmethod
-    def display_message(msg: str) -> None:
-        print(f"\n{msg}")
-
+import streamlit as st
 
 # =============================================================================
-# TIER 4: ORCHESTRATION LAYER (THE CONTROLLER)
+# TIER 3 & 4: STREAMLIT PRESENTATION & ORCHESTRATION LAYER
 # =============================================================================
-class DiabetesRiskController:
-    """Coordinates workflow actions, managing state across Data, Service, and View layers."""
 
-    def __init__(
-        self,
-        repository: PatientRepository,
-        service: DiabetesRiskService,
-        view: ConsoleView,
-    ) -> None:
-        self.repo = repository
-        self.service = service
-        self.view = view
 
-    def start(self) -> None:
-        """Main execution loop (Core Workflows 01 & 02)."""
-        while True:
-            choice = self.view.show_main_menu()
-            if choice == "1":
-                self._handle_patient_assessment()
-            elif choice == "2":
-                self.view.display_message(
-                    "Exiting Diabetes Risk Scoring System. Good morning/evening!"
+def run_streamlit_app(
+    repository: PatientRepository, service: DiabetesRiskService
+):
+    st.set_page_config(
+        page_title="Diabetes Risk Scoring System", page_icon="🩺", layout="wide"
+    )
+
+    st.title("🩺 Diabetes Risk Assessment System")
+    st.markdown("---")
+
+    # Sidebar: Patient Selection
+    st.sidebar.header("Patient Selection")
+    patient_ids = repository.get_all_ids()
+
+    selected_id = st.sidebar.selectbox(
+        "Select Patient ID",
+        options=patient_ids,
+        index=0 if patient_ids else None,
+    )
+
+    if selected_id:
+        # Retrieve baseline profile from Repository
+        patient = repository.get_by_id(selected_id)
+
+        if patient:
+            st.subheader(f"Patient Profile — ID: #{patient.patient_id}")
+
+            # Form layout for clinical metrics input
+            with st.form(key="patient_metrics_form"):
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    glucose = st.number_input(
+                        "Fasting Glucose (mg/dL)",
+                        min_value=0.0,
+                        value=float(patient.glucose),
+                        step=0.1,
+                    )
+                    bmi = st.number_input(
+                        "Body Mass Index - BMI (kg/m²)",
+                        min_value=0.0,
+                        value=float(patient.bmi),
+                        step=0.1,
+                    )
+
+                with col2:
+                    age = st.number_input(
+                        "Age (years)",
+                        min_value=0,
+                        value=int(patient.age),
+                        step=1,
+                    )
+                    bp = st.number_input(
+                        "Blood Pressure (mmHg)",
+                        min_value=0.0,
+                        value=float(patient.blood_pressure),
+                        step=0.1,
+                    )
+
+                submit_button = st.form_submit_button(
+                    label="Assess Diabetes Risk", type="primary"
                 )
-                break
-            else:
-                self.view.display_error("Invalid selection. Please choose 1 or 2.")
 
-    def _handle_patient_assessment(self) -> None:
-        """Core Workflow 01 Implementation."""
-        valid_ids = self.repo.get_all_ids()
-        self.view.display_patient_list(valid_ids)
-
-        raw_id = self.view.prompt_patient_id()
-
-        # Input Validation: Check numeric and presence
-        if not raw_id.isdigit():
-            self.view.display_error(
-                "Invalid input format. Patient ID must be an integer."
-            )
-            return
-
-        patient_id = int(raw_id)
-        patient = self.repo.get_by_id(patient_id)
-
-        if not patient:
-            self.view.display_error(
-                f"Patient ID {patient_id} does not exist in records."
-            )
-            return
-
-        # Display current baseline profile
-        self.view.display_patient_profile(patient)
-
-        # Metric update option
-        if self.view.prompt_modify_metrics():
-            print("\nUpdate Metrics (Press Enter to keep existing value):")
-            patient.glucose = self.view.prompt_metric_update(
-                "Glucose (mg/dL)", patient.glucose
-            )
-            patient.bmi = self.view.prompt_metric_update(
-                "BMI (kg/m²)", patient.bmi
-            )
-            patient.age = int(
-                self.view.prompt_metric_update(
-                    "Age (years)", float(patient.age), is_int=True
+            # Execution logic upon form submission
+            if submit_button:
+                # 1. Update patient profile in repository
+                updated_patient = PatientProfile(
+                    patient_id=selected_id,
+                    glucose=glucose,
+                    bmi=bmi,
+                    age=age,
+                    blood_pressure=bp,
                 )
-            )
-            patient.blood_pressure = self.view.prompt_metric_update(
-                "Blood Pressure (mmHg)", patient.blood_pressure
-            )
+                repository.update_patient(updated_patient)
 
-            # Persist updated values back to repository
-            self.repo.update_patient(patient)
+                # 2. Calculate risk report via Service Layer
+                report = service.calculate_risk(updated_patient)
 
-        # Calculate clinical risk score
-        report = self.service.calculate_risk(patient)
+                # 3. Display Results
+                st.markdown("---")
+                st.subheader(
+                    f"📊 Diagnostic Risk Report — Patient #{report.patient_id}"
+                )
 
-        # Output diagnostic risk report
-        self.view.display_diagnostic_report(report)
+                # Table of metric scores
+                report_data = [
+                    {
+                        "Metric": "Fasting Glucose",
+                        "Value": f"{report.glucose_score.value:.1f} mg/dL",
+                        "Range Category": report.glucose_score.range_category,
+                        "Points": report.glucose_score.points,
+                    },
+                    {
+                        "Metric": "Body Mass Index (BMI)",
+                        "Value": f"{report.bmi_score.value:.1f} kg/m²",
+                        "Range Category": report.bmi_score.range_category,
+                        "Points": report.bmi_score.points,
+                    },
+                    {
+                        "Metric": "Age",
+                        "Value": f"{report.age_score.value:.0f} years",
+                        "Range Category": report.age_score.range_category,
+                        "Points": report.age_score.points,
+                    },
+                    {
+                        "Metric": "Blood Pressure",
+                        "Value": f"{report.bp_score.value:.1f} mmHg",
+                        "Range Category": report.bp_score.range_category,
+                        "Points": report.bp_score.points,
+                    },
+                ]
 
+                st.table(report_data)
+
+                # Summary Metrics Banner
+                res_col1, res_col2 = st.columns(2)
+
+                with res_col1:
+                    st.metric(
+                        label="Total Clinical Score", value=report.total_score
+                    )
+
+                with res_col2:
+                    # Highlight status based on risk level
+                    risk_cat = report.risk_category.upper()
+                    if report.risk_category == "Low Risk":
+                        st.success(f"Risk Assessment: **{risk_cat}**")
+                    elif report.risk_category == "Moderate Risk":
+                        st.warning(f"Risk Assessment: **{risk_cat}**")
+                    else:
+                        st.error(f"Risk Assessment: **{risk_cat}**")
+
+
+# =============================================================================
+# STREAMLIT ENTRY POINT
+# =============================================================================
+if __name__ == "__main__":
+    # Maintain state across Streamlit re-runs using session_state
+    if "repository" not in st.session_state:
+        st.session_state.repository = PatientRepository()
+
+    if "service" not in st.session_state:
+        st.session_state.service = DiabetesRiskService()
+
+    run_streamlit_app(st.session_state.repository, st.session_state.service)
 
 # =============================================================================
 # 3-TIER TESTING SUITE (UNIT, END-TO-END, PERFORMANCE)
