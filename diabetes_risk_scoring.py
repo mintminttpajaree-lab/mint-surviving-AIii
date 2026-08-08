@@ -37,6 +37,12 @@ from typing import Dict, List, Optional, Tuple
 RUN_TEST_SUITE: bool = False
 
 
+import sqlite3
+import statistics
+from dataclasses import dataclass
+from typing import List, Optional
+
+
 # =============================================================================
 # TIER 1: DATA ACCESS LAYER (THE MODEL & REPOSITORY)
 # =============================================================================
@@ -52,62 +58,124 @@ class PatientProfile:
 
 
 class PatientRepository:
-    """Manages data persistence, retrieval, and initial data cleansing."""
+    """Manages persistent database storage (SQLite), retrieval, and initial data cleansing."""
 
-    def __init__(self) -> None:
-        # Data Mockup: 4 sample patients (Patient 103 intentionally has BMI = 0)
-        self._patients: Dict[int, PatientProfile] = {
-            101: PatientProfile(
-                patient_id=101, glucose=92.0, bmi=22.5, age=32, blood_pressure=115.0
-            ),
-            102: PatientProfile(
-                patient_id=102, glucose=112.0, bmi=27.4, age=51, blood_pressure=128.0
-            ),
-            103: PatientProfile(
-                patient_id=103, glucose=145.0, bmi=0.0, age=68, blood_pressure=142.0
-            ),
-            104: PatientProfile(
-                patient_id=104, glucose=185.0, bmi=34.8, age=71, blood_pressure=155.0
-            ),
-        }
-        # Perform data cleaning upon initialization
+    def __init__(self, db_path: str = "patients.db") -> None:
+        self.db_path = db_path
+        self._init_db()
         self._cleanse_data()
 
+    def _get_connection(self) -> sqlite3.Connection:
+        """Establishes and returns a SQLite database connection with Row factory."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _init_db(self) -> None:
+        """Creates the patients table schema and inserts initial mockup data if empty."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS patients (
+                    patient_id INTEGER PRIMARY KEY,
+                    glucose REAL NOT NULL,
+                    bmi REAL NOT NULL,
+                    age INTEGER NOT NULL,
+                    blood_pressure REAL NOT NULL
+                )
+            """
+            )
+
+            # Seed initial mockup data if the database is newly initialized
+            cursor.execute("SELECT COUNT(*) FROM patients")
+            if cursor.fetchone()[0] == 0:
+                mock_data = [
+                    (101, 92.0, 22.5, 32, 115.0),
+                    (102, 112.0, 27.4, 51, 128.0),
+                    (103, 145.0, 0.0, 68, 142.0),
+                    (104, 185.0, 34.8, 71, 155.0),
+                ]
+                cursor.executemany(
+                    """
+                    INSERT INTO patients (patient_id, glucose, bmi, age, blood_pressure)
+                    VALUES (?, ?, ?, ?, ?)
+                """,
+                    mock_data,
+                )
+            conn.commit()
+
     def _cleanse_data(self) -> None:
-        """Data Cleansing Rule: Automatically replace invalid BMI (0) with the median BMI of valid patients."""
-        valid_bmis = [p.bmi for p in self._patients.values() if p.bmi > 0]
+        """Data Cleansing Rule: Automatically replace invalid BMI (<= 0) with the median BMI of valid patients."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT bmi FROM patients WHERE bmi > 0")
+            valid_bmis = [row["bmi"] for row in cursor.fetchall()]
 
-        if not valid_bmis:
-            default_bmi = 25.0  # Fallback if no valid BMIs exist
-        else:
-            default_bmi = statistics.median(valid_bmis)
+            if not valid_bmis:
+                default_bmi = 25.0  # Fallback if no valid BMIs exist
+            else:
+                default_bmi = statistics.median(valid_bmis)
 
-        for patient in self._patients.values():
-            if patient.bmi <= 0:
-                patient.bmi = round(default_bmi, 1)
+            cursor.execute(
+                "UPDATE patients SET bmi = ? WHERE bmi <= 0",
+                (round(default_bmi, 1),),
+            )
+            conn.commit()
 
     def get_all_ids(self) -> List[int]:
-        """Returns a list of all registered patient IDs."""
-        return sorted(list(self._patients.keys()))
+        """Returns a sorted list of all registered patient IDs from the database."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT patient_id FROM patients ORDER BY patient_id ASC"
+            )
+            return [row["patient_id"] for row in cursor.fetchall()]
 
     def get_by_id(self, patient_id: int) -> Optional[PatientProfile]:
-        """Retrieves a patient profile by ID, or None if not found."""
-        patient = self._patients.get(patient_id)
-        if patient:
-            # Return a shallow copy to prevent unintended direct state mutation
-            return PatientProfile(
-                patient.patient_id,
-                patient.glucose,
-                patient.bmi,
-                patient.age,
-                patient.blood_pressure,
+        """Retrieves a patient profile by ID from the database, or None if not found."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT patient_id, glucose, bmi, age, blood_pressure 
+                FROM patients 
+                WHERE patient_id = ?
+            """,
+                (patient_id,),
             )
-        return None
+            row = cursor.fetchone()
+            if row:
+                return PatientProfile(
+                    patient_id=row["patient_id"],
+                    glucose=row["glucose"],
+                    bmi=row["bmi"],
+                    age=row["age"],
+                    blood_pressure=row["blood_pressure"],
+                )
+            return None
 
     def update_patient(self, updated_profile: PatientProfile) -> None:
-        """Persists updated patient clinical metrics back to data storage."""
-        if updated_profile.patient_id in self._patients:
-            self._patients[updated_profile.patient_id] = updated_profile
+        """Persists updated patient clinical metrics directly into the database."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE patients 
+                SET glucose = ?, bmi = ?, age = ?, blood_pressure = ?
+                WHERE patient_id = ?
+            """,
+                (
+                    updated_profile.glucose,
+                    updated_profile.bmi,
+                    updated_profile.age,
+                    updated_profile.blood_pressure,
+                    updated_profile.patient_id,
+                ),
+            )
+            conn.commit()
+
+
 
 
 # =============================================================================
