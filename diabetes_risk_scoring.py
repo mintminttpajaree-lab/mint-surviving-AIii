@@ -267,32 +267,20 @@ class ConsoleView:
             return current_value
 
     @staticmethod
-    def display_diagnostic_report(report: DiagnosticRiskReport) -> None:
-        print("\n" + "─" * 55)
-        print(
-            f"       DIAGNOSTIC RISK REPORT — PATIENT #{report.patient_id}"
-        )
-        print("─" * 55)
-        print(
-            f" Metric             | Value     | Range Score | Points"
-        )
-        print("─" * 55)
-        print(
-            f" Fasting Glucose    | {report.glucose_score.value:>6.1f}   | {report.glucose_score.range_category:<11} | {report.glucose_score.points}"
-        )
-        print(
-            f" Body Mass Index    | {report.bmi_score.value:>6.1f}   | {report.bmi_score.range_category:<11} | {report.bmi_score.points}"
-        )
-        print(
-            f" Age                | {report.age_score.value:>6.0f}   | {report.age_score.range_category:<11} | {report.age_score.points}"
-        )
-        print(
-            f" Blood Pressure     | {report.bp_score.value:>6.1f}   | {report.bp_score.range_category:<11} | {report.bp_score.points}"
-        )
-        print("─" * 55)
-        print(f" TOTAL CLINICAL SCORE: {report.total_score}")
-        print(f" RISK ASSESSMENT     : [{report.risk_category.upper()}]")
-        print("─" * 55)
+    def display_diagnostic_report(patient_id: int, score: int, category: str) -> None:
+        print("\n" + "=" * 44)
+        print("*" * 44)
+        print("        OFFICIAL MEDICAL RECEIPT         ")
+        print("        DIAGNOSTIC RISK REPORT           ")
+        print("*" * 44)
+        print("-" * 44)
+        print(f"  PATIENT ID       : {patient_id}")
+        print(f"  CUMULATIVE SCORE : {score} pts")
+        print(f"  RISK CATEGORY    : {category.upper()}")
+        print("-" * 44)
+        print("*" * 44)
+        print("  *** WARNING: CONFIDENTIAL MEDICAL DATA *** ")
+        print("=" * 44)
 
     @staticmethod
     def display_error(msg: str) -> None:
